@@ -280,7 +280,7 @@ class BYTETracker(object):
        
         rm_activated = []
         for track_i, crp_i in zip(track_iS,crp_iS):
-            det_track= u_detection[crp_i]
+            det_track= detections[u_detection[crp_i]] 
             rm_track = rm_stracks[track_i]
             if rm_track.state == TrackState.Tracked:
                 rm_track.update(det_track,self.frame_id)
@@ -294,6 +294,8 @@ class BYTETracker(object):
                 rm_activated.append(rm_track)
         
         self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
+
+        u_detection = [index for index in u_detection if index not in track_iS]
 ###############################################################################################
 ################################# OUR EDIT ####################################################
 
