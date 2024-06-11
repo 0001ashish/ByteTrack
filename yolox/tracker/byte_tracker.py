@@ -278,7 +278,7 @@ class BYTETracker(object):
         rm_stracks_feat = [tr.features for tr in rm_stracks]
         track_iS, relative_feature_iS, crp_iS = find_best_matches(rm_stracks_feat,crp_features)
        
-        rm_activated = [2]
+        rm_activated = []
         for track_i, crp_i in zip(track_iS,crp_iS):
             det_track= u_detection[crp_i]
             rm_track = rm_stracks[track_i]
