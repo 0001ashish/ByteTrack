@@ -332,7 +332,7 @@ class BYTETracker(object):
 
             if (self.frame_id-track.feat_framenum)<50:
                 continue
-            if len(track.features==5):
+            if len(track.features)==5:
                 track.features.pop(0)
             track.features.append(cropped_feature)
             track.feat_framenum = self.frame_id
