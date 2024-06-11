@@ -268,7 +268,8 @@ class BYTETracker(object):
 ###############################################################################################
 ################################# OUR EDIT ####################################################
         cropped_regions = []
-        for det in u_detection:
+        for det_i in u_detection:
+            det = detections[det_i]
             crp = crop_roi(frame,det)
             cropped_regions.append(crp)
     
