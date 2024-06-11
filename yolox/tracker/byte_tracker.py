@@ -1,7 +1,6 @@
 import numpy as np
 from collections import deque
 import os
-import cv2
 import os.path as osp
 import copy
 import torch
@@ -10,21 +9,20 @@ import torch.nn.functional as F
 from .kalman_filter import KalmanFilter
 from yolox.tracker import matching
 from .basetrack import BaseTrack, TrackState
-from typing import Optional, List
-from scipy.spatial.distance import cosine
+from typing import List
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
     def __init__(self, tlwh, score):
 
+        self.features = []
+        self.feat_framenum = 0
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=float)
+        self._tlwh = np.asarray(tlwh, dtype=np.float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
-        ###----------------------edit-----------------------###
-        self.feature = None
-        ###----------------------edit-----------------------###
+
         self.score = score
         self.tracklet_len = 0
 
@@ -47,14 +45,12 @@ class STrack(BaseTrack):
                 stracks[i].mean = mean
                 stracks[i].covariance = cov
 
-    def activate(self, kalman_filter, frame_id, feature):
+    def activate(self, kalman_filter, frame_id):
         """Start a new tracklet"""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
-        ###----------------------edit-----------------------###
-        self.feature=feature
-        ###----------------------edit-----------------------###
+
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         if frame_id == 1:
@@ -150,17 +146,12 @@ class STrack(BaseTrack):
 
 
 class BYTETracker(object):
-    def __init__(self, args, feature_extractor, global_stracks:List[STrack]=[], frame_rate=30):###<----- added feature_extractor & global_stracks attribute to constructor
+    def __init__(self, args,extractor, frame_rate=30):
+        self.extractor = extractor
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
+        self.removed_stracks = []  # type: list[STrack]
 
-        ###-------------------edit-----------------------------###
-        self.global_stracks = global_stracks
-        self.removed_stracks = [STrack(track.tlwh, track.score) for track in global_stracks]  # type: list[STrack]
-        for r_track,g_track in zip(self.removed_stracks,global_stracks):
-            r_track.track_id = g_track.track_id
-            r_track.feature = g_track.feature
-        ###-------------------edit-----------------------------###
         self.frame_id = 0
         self.args = args
         #self.det_thresh = args.track_thresh
@@ -168,11 +159,8 @@ class BYTETracker(object):
         self.buffer_size = int(frame_rate / 30.0 * args.track_buffer)
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilter()
-        ###------------edit------------###
-        self.extractor = feature_extractor
-        ###------------edit------------###
 
-    def update(self, frame, output_results, img_info, img_size): ###<----- added frame attribute to update method
+    def update(self, frame, output_results, img_info, img_size):
         self.frame_id += 1
         activated_starcks = []
         refind_stracks = []
@@ -276,37 +264,45 @@ class BYTETracker(object):
             track.mark_removed()
             removed_stracks.append(track)
 
-        ###------------------------------edit------------------------------_###
-        #######################################################################
-        detections = [detections[i] for i in u_detection if detections[i].score]
-        boxes = [track.tlbr for track in detections]
-        crops = [crop_box(box=box, frame=frame) for box in boxes]
-        detected_features = self.extractor(crops)
 
-        high_removed_stracks = [track for track in self.removed_stracks if track.score>0.7]
-        removed_features = [track.feature for track in high_removed_stracks]
-        similarity_matrix = compare_features(removed_features,detected_features)
-        matched, u_removed, u_detection = filter_matches(similarity_matrix=similarity_matrix)
-        print("u_detection length:",len(u_detection))
-        for i_rem, i_det in matched:
-            det = detections[i_det]
-            track = high_removed_stracks[i_rem]
-            track[i_rem].re_activate(det,self.frame_id,new_id=False)
-            refind_stracks.append(track)
+###############################################################################################
+################################# OUR EDIT ####################################################
+        cropped_regions = []
+        for det in u_detection:
+            crp = crop_roi(frame,det)
+            cropped_regions.append(crp)
+    
+        crp_features = self.extractor(cropped_regions)
+        rm_stracks = [track for track in self.removed_stracks if not track.is_activated]
+        rm_stracks_feat = [tr.features for tr in rm_stracks]
+        track_iS, relative_feature_iS, crp_iS = find_best_matches(rm_stracks_feat,crp_features)
+       
+        rm_activated = [2]
+        for track_i, crp_i in zip(track_iS,crp_iS):
+            det_track= u_detection[crp_i]
+            rm_track = rm_stracks[track_i]
+            if rm_track.state == TrackState.Tracked:
+                rm_track.update(det_track,self.frame_id)
+                activated_starcks.append(rm_track)
+                rm_activated.append(rm_track)
+
+            
+            else:
+                track.re_activate(det_track, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+                rm_activated.append(rm_track)
         
-        print("REFINDS:",len(refind_stracks))
-        #######################################################################
-        ###------------------------------edit------------------------------_###
+        self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
+###############################################################################################
+################################# OUR EDIT ####################################################
+
         """ Step 4: Init new stracks"""
         for inew in u_detection:
             track = detections[inew]
-            feature = detected_features[inew]  ###<----- edit
             if track.score < self.det_thresh:
                 continue
-            track.activate(self.kalman_filter, self.frame_id, feature) ###<----- passed in feature as well
+            track.activate(self.kalman_filter, self.frame_id)
             activated_starcks.append(track)
-            self.global_stracks.append(track)
-        print("ACTIVATED:",activated_starcks)
         """ Step 5: Update state"""
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
@@ -322,13 +318,26 @@ class BYTETracker(object):
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
-        self.removed_stracks = sub_stracks(self.removed_stracks,self.tracked_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-        print("OUTPUTS:",len(output_stracks))
-        return output_stracks
 
+###################################################################################################
+######################################### OUR EDIT ################################################
+        for track in output_stracks:
+            cropped_region = crop_roi(frame=frame,strack=track)
+            cropped_feature = self.extractor(cropped_region)
+            
+
+            if (self.frame_id-track.feat_framenum)<50:
+                continue
+            if len(track.features==5):
+                track.features.pop(0)
+            track.features.append(cropped_feature)
+            track.feat_framenum = self.frame_id
+######################################### OUR EDIT ################################################
+###################################################################################################
+        return output_stracks
 
 def joint_stracks(tlista, tlistb):
     exists = {}
@@ -342,7 +351,6 @@ def joint_stracks(tlista, tlistb):
             exists[tid] = 1
             res.append(t)
     return res
-
 
 def sub_stracks(tlista, tlistb):
     stracks = {}
@@ -370,79 +378,95 @@ def remove_duplicate_stracks(stracksa, stracksb):
     resb = [t for i, t in enumerate(stracksb) if not i in dupb]
     return resa, resb
 
-###----------------------edit-----------------------###
-#######################################################
-def crop_box(frame, box):
-  """
-  Crops a region from a frame in RGB format based on bounding box coordinates.
+def crop_roi(frame, strack):
+    """Crops a region of interest from a frame based on STrack coordinates.
 
-  Args:
-      frame: A NumPy array representing the image frame (in BGR format).
-      box: A tuple containing the top-left and bottom-right coordinates of the bounding box (x_min, y_min, x_max, y_max).
+    Args:
+        frame: The input image/frame (NumPy array).
+        strack: An STrack object containing detection coordinates (tlwh format).
+        margin: Optional margin (in pixels) to add around the cropped region.
 
-  Returns:
-      A NumPy array representing the cropped region in RGB format, or None if the box is invalid.
-  """
-  (x_min, y_min, x_max, y_max) = box
+    Returns:
+        The cropped region of interest as a NumPy array.
+    """
 
-  # Check for invalid box coordinates
-  if x_min >= x_max or y_min >= y_max:
-    return None
+    tlbr = strack.tlbr
+    x1, y1, x2, y2 = tlbr
 
-  # Clamp coordinates to frame dimensions
-  x_min = int(max(0, x_min))
-  y_min = int(max(0, y_min))
-  x_max = int(min(frame.shape[1], x_max))
-  y_max = int(min(frame.shape[0], y_max))
+    # Add margins
+    x1 = int(x1)
+    y1 = int(y1)
+    x2 = int(x2)
+    y2 = int(y2)
 
-  # Convert to RGB format
-  frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Crop the ROI
+    roi = frame[y1:y2, x1:x2]
 
-  # Crop the frame in RGB
-  cropped_region = frame_rgb[y_min:y_max, x_min:x_max]
-  return cropped_region
+    return roi
 
-def compare_features(features1: List[np.array], features2: List[np.array]):
-        # 1. Preprocessing
-        def preprocess_feature(feature_array):
-            return feature_array.flatten()  # Or other necessary preprocessing
+def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.7):
+    """Finds the absolute best matches between features in a nested list (l1) and a flat list (l2).
 
-        # Preprocess all features
-        features1_flattened = [preprocess_feature(f) for f in features1]
-        features2_flattened = [preprocess_feature(f) for f in features2]
+    Args:
+        l1: A nested list where each inner list contains PyTorch tensors representing features.
+        l2: A list of PyTorch tensors representing features.
+        threshold: The cosine similarity threshold to consider a match valid.
 
-        # 2. Similarity Calculation (Example using cosine similarity)
-        def cosine_similarity(a, b):
-            return 1-cosine(a,b)
+    Returns:
+        track_indices: A list of integers representing the track indices where the absolute best matches were found.
+        feature_indices_l1: A list of integers representing the feature indices within l1 for the absolute best matches.
+        feature_indices_l2: A list of integers representing the feature indices within l2.
+    """
+    
+    track_indices = []
+    feature_indices_l1 = []
+    feature_indices_l2 = []
 
-        print("working here")
-        similarity_matrix = np.zeros((len(features1_flattened), len(features2_flattened)))
-        for i in range(len(features1_flattened)):
-            for j in range(len(features2_flattened)):
-                similarity_matrix[i, j] = cosine_similarity(features1_flattened[i].cpu(), features2_flattened[j].cpu())
+    for feature_index_l2, feature2 in enumerate(l2):
+        best_similarity = -1
+        best_track_index = None
+        best_feature_index_l1 = None
 
-        # 3. Extract Highest Matches
-        return similarity_matrix
+        for track_index, track_features in enumerate(l1):
+            for feature_index_l1, feature1 in enumerate(track_features):
+                similarity = torch.nn.functional.cosine_similarity(feature1, feature2, dim=0)
+                if similarity > threshold and similarity > best_similarity:
+                    best_similarity = similarity
+                    best_track_index = track_index
+                    best_feature_index_l1 = feature_index_l1
 
-def filter_matches(similarity_matrix):
-    threshold = 0.60
+        if best_track_index is not None and best_feature_index_l1 is not None:
+            track_indices.append(best_track_index)
+            feature_indices_l1.append(best_feature_index_l1)
+            feature_indices_l2.append(feature_index_l2)
 
-    # 1. Matchings with highest similarity per row
-    matches = []
-    for row_index in range(similarity_matrix.shape[0]):
-        row_values = similarity_matrix[row_index]
-        high_sim_indices = np.where(row_values > threshold)[0]  # Indices with similarity > threshold
+    return track_indices, feature_indices_l1, feature_indices_l2
 
-        if high_sim_indices.size > 0:
-            best_match_index = high_sim_indices[np.argmax(row_values[high_sim_indices])]  # Index of highest
-            matches.append((row_index, best_match_index))
+# def compare_features(features1, features2):
+#     """Calculates cosine similarities between two lists of features and returns the indices of maximum matches.
 
-    # 2. Rows without high similarity matches (same as before)
-    rows_without_matches = np.where(~np.any(similarity_matrix > threshold, axis=1))[0]
+#     Args:
+#         features1: A list of PyTorch tensors representing features.
+#         features2: Another list of PyTorch tensors representing features.
 
-    # 3. Columns without high similarity matches (same as before)
-    cols_without_matches = np.where(~np.any(similarity_matrix > threshold, axis=0))[0]
+#     Returns:
+#         A list of tuples (row_index, column_index) where each tuple represents the indices 
+#         of the maximum cosine similarity for each feature in features1.
+#     """
 
-    return matches, rows_without_matches, cols_without_matches
-#######################################################
-###----------------------edit-----------------------###
+#     similarity_matrix = torch.zeros(len(features1), len(features2))  # Initialize matrix
+
+#     for i, feature1 in enumerate(features1):
+#         for j, feature2 in enumerate(features2):
+#             similarity_matrix[i, j] = torch.nn.functional.cosine_similarity(feature1, feature2, dim=0)
+            
+#     # Find the column index with the maximum similarity for each row
+#     max_indices = torch.argmax(similarity_matrix, dim=1)
+
+#     # Get the row indices
+#     row_indices = torch.arange(len(features1))
+
+#     # Create a list of tuples (row_index, column_index)
+#     max_similarity_indices = list(zip(row_indices.tolist(), max_indices.tolist()))
+
+#     return max_similarity_indices
