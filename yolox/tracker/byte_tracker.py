@@ -18,7 +18,7 @@ class STrack(BaseTrack):
         self.features = []
         self.feat_framenum = 0
         # wait activate
-        self._tlwh = np.asarray(tlwh, dtype=np.float)
+        self._tlwh = np.asarray(tlwh, dtype=float)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
         self.is_activated = False
