@@ -267,35 +267,35 @@ class BYTETracker(object):
 
 ###############################################################################################
 ################################# OUR EDIT ####################################################
+        det_indices_set = {det for _, det in matches}
+        u_detection = list(set(u_detection) - det_indices_set)
+
         cropped_regions = []
         for det_i in u_detection:
             det = detections[det_i]
             crp = crop_roi(frame,det)
             cropped_regions.append(crp)
     
-        crp_features = self.extractor(cropped_regions)
+        det_features = self.extractor(cropped_regions)
         rm_stracks = [track for track in self.removed_stracks if not track.is_activated]
         rm_stracks_feat = [tr.features for tr in rm_stracks]
-        track_iS, relative_feature_iS, crp_iS = find_best_matches(rm_stracks_feat,crp_features)
+        track_iS, relative_feature_iS, det_iS = find_best_matches(rm_stracks_feat,det_features)
        
         rm_activated = []
-        for track_i, crp_i in zip(track_iS,crp_iS):
-            det_track= detections[u_detection[crp_i]] 
-            rm_track = rm_stracks[track_i]
+        for tracki, deti in zip(track_iS,det_iS):
+            det_track= detections[u_detection[deti]] 
+            rm_track = rm_stracks[tracki]
             if rm_track.state == TrackState.Tracked:
                 rm_track.update(det_track,self.frame_id)
-                activated_starcks.append(rm_track)
-                rm_activated.append(rm_track)
-
-            
+                activated_starcks.append(rm_track)            
             else:
                 track.re_activate(det_track, self.frame_id, new_id=False)
                 refind_stracks.append(track)
-                rm_activated.append(rm_track)
+            rm_activated.append(rm_track)
         
         self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
 
-        u_detection = [index for index in u_detection if index not in track_iS]
+        u_detection = list(set(u_detection)-set(det_iS))
 ###############################################################################################
 ################################# OUR EDIT ####################################################
 
