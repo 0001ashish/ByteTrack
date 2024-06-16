@@ -167,6 +167,7 @@ class BYTETracker(object):
         lost_stracks = []
         removed_stracks = []
 
+        print("IW...1")
         if output_results.shape[1] == 5:
             scores = output_results[:, 4]
             bboxes = output_results[:, :4]
@@ -177,7 +178,6 @@ class BYTETracker(object):
         img_h, img_w = img_info[0], img_info[1]
         scale = min(img_size[0] / float(img_h), img_size[1] / float(img_w))
         bboxes /= scale
-
         remain_inds = scores > self.args.track_thresh
         inds_low = scores > 0.1
         inds_high = scores < self.args.track_thresh
@@ -264,38 +264,36 @@ class BYTETracker(object):
             track.mark_removed()
             removed_stracks.append(track)
 
-
+        print("IW...2")
 ###############################################################################################
 ################################# OUR EDIT ####################################################
-        det_indices_set = {det for _, det in matches}
-        u_detection = list(set(u_detection) - det_indices_set)
-
         cropped_regions = []
         for det_i in u_detection:
             det = detections[det_i]
             crp = crop_roi(frame,det)
             cropped_regions.append(crp)
-    
-        det_features = self.extractor(cropped_regions)
-        rm_stracks = [track for track in self.removed_stracks if not track.is_activated]
-        rm_stracks_feat = [tr.features for tr in rm_stracks]
-        track_iS, relative_feature_iS, det_iS = find_best_matches(rm_stracks_feat,det_features)
-       
-        rm_activated = []
-        for tracki, deti in zip(track_iS,det_iS):
-            det_track= detections[u_detection[deti]] 
-            rm_track = rm_stracks[tracki]
-            if rm_track.state == TrackState.Tracked:
-                rm_track.update(det_track,self.frame_id)
-                activated_starcks.append(rm_track)            
-            else:
-                track.re_activate(det_track, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-            rm_activated.append(rm_track)
         
-        self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
+        if cropped_regions:
+            det_features = self.extractor(cropped_regions)
+            rm_stracks = [track for track in self.removed_stracks if (not track.is_activated and len(track.features)>0)]
+            rm_stracks_feat = [tr.features for tr in rm_stracks]
+            track_iS, relative_feature_iS, det_iS = find_best_matches(rm_stracks_feat,det_features)
+            print("IW...3")
+            rm_activated = []
+            for tracki, deti in zip(track_iS,det_iS):
+                det_track= detections[u_detection[deti]] 
+                rm_track = rm_stracks[tracki]
+                if rm_track.state == TrackState.Tracked:
+                    rm_track.update(det_track,self.frame_id)
+                    activated_starcks.append(rm_track)            
+                else:
+                    track.re_activate(det_track, self.frame_id, new_id=False)
+                    refind_stracks.append(track)
+                rm_activated.append(rm_track)
+            
+            self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
 
-        u_detection = list(set(u_detection)-set(det_iS))
+            u_detection = list(set(u_detection)-set(det_iS))
 ###############################################################################################
 ################################# OUR EDIT ####################################################
 
@@ -324,20 +322,19 @@ class BYTETracker(object):
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-
+        print("IW...4")
 ###################################################################################################
 ######################################### OUR EDIT ################################################
         for track in output_stracks:
             cropped_region = crop_roi(frame=frame,strack=track)
             cropped_feature = self.extractor(cropped_region)
-            
-
             if (self.frame_id-track.feat_framenum)<50:
                 continue
-            if len(track.features)==5:
+            if len(track.features)>=5:
                 track.features.pop(0)
             track.features.append(cropped_feature)
             track.feat_framenum = self.frame_id
+        print("IW...5")
 ######################################### OUR EDIT ################################################
 ###################################################################################################
         return output_stracks
@@ -407,7 +404,7 @@ def crop_roi(frame, strack):
 
     return roi
 
-def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.7):
+def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.6):
     """Finds the absolute best matches between features in a nested list (l1) and a flat list (l2).
 
     Args:

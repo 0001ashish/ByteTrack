@@ -136,6 +136,11 @@ docs/api
 *.pth
 *.onnx
 *.engine
+*.pt
 events.out.tfevents*
 pretrained
 YOLOX_outputs
+
+
+#dirs
+required_models/
