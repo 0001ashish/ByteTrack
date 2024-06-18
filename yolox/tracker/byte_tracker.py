@@ -267,11 +267,7 @@ class BYTETracker(object):
         print("IW...2")
 ###############################################################################################
 ################################# OUR EDIT ####################################################
-        cropped_regions = []
-        for det_i in u_detection:
-            det = detections[det_i]
-            crp = crop_roi(frame,det)
-            cropped_regions.append(crp)
+        cropped_regions = [crop_roi(frame,detections[i]) for i in u_detection]
         
         if cropped_regions:
             det_features = self.extractor(cropped_regions)
@@ -287,8 +283,8 @@ class BYTETracker(object):
                     rm_track.update(det_track,self.frame_id)
                     activated_starcks.append(rm_track)            
                 else:
-                    track.re_activate(det_track, self.frame_id, new_id=False)
-                    refind_stracks.append(track)
+                    rm_track.re_activate(det_track, self.frame_id, new_id=False)
+                    refind_stracks.append(rm_track)
                 rm_activated.append(rm_track)
             
             self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
@@ -404,7 +400,7 @@ def crop_roi(frame, strack):
 
     return roi
 
-def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.6):
+def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.4):
     """Finds the absolute best matches between features in a nested list (l1) and a flat list (l2).
 
     Args:

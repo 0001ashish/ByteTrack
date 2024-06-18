@@ -170,7 +170,7 @@ annotated_frames = []
 stracks_list = []
 temp_list = []
 
-with open('results\\MOT17-09-DPM-180620241643.txt', 'w') as mot20_file:
+with open('results\\MOT17-09-DPM-180620241928.txt', 'w') as mot20_file:
     temp_tracker = BYTETracker(args,copy.deepcopy(extractor),vid_data.fps)
     frame_count = 0
 
@@ -189,13 +189,11 @@ with open('results\\MOT17-09-DPM-180620241643.txt', 'w') as mot20_file:
               continue
             stracks = temp_tracker.update(frame,boxes, [vid_data.height, vid_data.width], [vid_data.height, vid_data.width])
             for track in stracks:
-                x1, y1, x2, y2 = track.tlbr  # Get bounding box coordinates
-                width = x2 - x1
-                height = y2 - y1
+                x, y, w, h = track.tlwh  # Get bounding box coordinates
                 frame_id = track.frame_id
                 conf = track.score
                 # Write to MOT20 file (frame, ID, x, y, w, h, conf, -1, -1, -1)
-                mot20_file.write(f"{frame_id},{track.track_id},{x1},{y1},{width},{height},1,-1,-1,-1\n")
+                mot20_file.write(f"{frame_id},{track.track_id},{x},{y},{w},{h},1,-1,-1,-1\n")
             annotation = annotate(frame, stracks, vid_data)
             annotated_frames.append(annotation)
 
@@ -205,7 +203,7 @@ with open('results\\MOT17-09-DPM-180620241643.txt', 'w') as mot20_file:
 
         frame_count += 1
 
-create_video(annotated_frames, vid_data, "results\\output2.mp4")
+create_video(annotated_frames, vid_data, "results\\output3.mp4")
 
 def change_seventh_value(filename):
   """Loads data from a file, changes every 7th value to 1, and saves it back.
