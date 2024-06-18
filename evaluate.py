@@ -1,9 +1,3 @@
-class EvaluatorArgs:
-     track_thresh = 0.3
-     track_buffer = 30
-     min_box_area = 1
+from yolox.tracking_utils import Evaluator
 
-args = EvaluatorArgs()
-from yolox.evaluators import MOTEvaluator
-
-evaluator = MOTEvaluator(args=args,)
+evaluator = Evaluator()
