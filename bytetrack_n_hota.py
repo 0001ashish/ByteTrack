@@ -24,7 +24,7 @@ import copy
 from yolox.tracker.kalman_filter import KalmanFilter
 from yolox.tracker import matching
 from yolox.tracker.basetrack import BaseTrack, TrackState
-
+from tqdm import tqdm
 video_path = "input_videos\\MOT17-09-DPM-raw.webm"
 
 # @title BYTETracker arguments & VideoInfo dataclass
@@ -67,8 +67,7 @@ def frame_generator(cap):
     success, frame = cap.read()
     if not success:
       break
-    yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
-
+    yield frame
 
 def draw_rectangle(frame: np.ndarray, track_id: int, bbox: Tuple):
     """
@@ -170,40 +169,45 @@ annotated_frames = []
 stracks_list = []
 temp_list = []
 
-with open('results\\MOT17-09-DPM-180620241928.txt', 'w') as mot20_file:
+with open('results\\MOT17-09-DPM-190620241133.txt', 'w') as mot20_file:
     temp_tracker = BYTETracker(args,copy.deepcopy(extractor),vid_data.fps)
     frame_count = 0
+    # Calculate total frames if possible (improves accuracy)
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    except:  # Some video sources might not provide frame count
+        total_frames = None 
+    with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
+      while True:
+          try:
+              frame = next(iterator)
+          except StopIteration:
+              cap.release()
+              print("Done. You have reached the end of the video")
+              break
 
-    while True:
-        try:
-            frame = next(iterator)
-        except StopIteration:
-            cap.release()
-            print("Done. You have reached the end of the video")
-            break
+          try:
+              results = model(frame)
+              boxes = detections2boxes(results)
+              if len(boxes)==0:
+                continue
+              stracks = temp_tracker.update(frame,boxes, [vid_data.height, vid_data.width], [vid_data.height, vid_data.width])
+              for track in stracks:
+                  print("LEN:",len(track.features))
+                  x, y, w, h = track.tlwh  # Get bounding box coordinates
+                  frame_id = track.frame_id
+                  conf = track.score
+                  # Write to MOT20 file (frame, ID, x, y, w, h, conf, -1, -1, -1)
+                  mot20_file.write(f"{frame_id},{track.track_id},{x},{y},{w},{h},1,-1,-1,-1\n")
+              annotation = annotate(frame, stracks, vid_data)
+              annotated_frames.append(annotation)
+              pbar.update(1) 
+          except Exception as e:
+              print(e)
+              break
 
-        try:
-            results = model(frame)
-            boxes = detections2boxes(results)
-            if len(boxes)==0:
-              continue
-            stracks = temp_tracker.update(frame,boxes, [vid_data.height, vid_data.width], [vid_data.height, vid_data.width])
-            for track in stracks:
-                x, y, w, h = track.tlwh  # Get bounding box coordinates
-                frame_id = track.frame_id
-                conf = track.score
-                # Write to MOT20 file (frame, ID, x, y, w, h, conf, -1, -1, -1)
-                mot20_file.write(f"{frame_id},{track.track_id},{x},{y},{w},{h},1,-1,-1,-1\n")
-            annotation = annotate(frame, stracks, vid_data)
-            annotated_frames.append(annotation)
-
-        except Exception as e:
-            print(e)
-            break
-
-        frame_count += 1
-
-create_video(annotated_frames, vid_data, "results\\output3.mp4")
+          frame_count += 1
+create_video(annotated_frames, vid_data, "results\\output6.mp4")
 
 def change_seventh_value(filename):
   """Loads data from a file, changes every 7th value to 1, and saves it back.

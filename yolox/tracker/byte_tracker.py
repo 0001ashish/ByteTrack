@@ -267,29 +267,34 @@ class BYTETracker(object):
         print("IW...2")
 ###############################################################################################
 ################################# OUR EDIT ####################################################
-        cropped_regions = [crop_roi(frame,detections[i]) for i in u_detection]
+        detections = [detections[i] for i in u_detection]
+        cropped_regions = [crop_roi(frame,det) for det in detections]
         
         if cropped_regions:
             det_features = self.extractor(cropped_regions)
-            rm_stracks = [track for track in self.removed_stracks if (not track.is_activated and len(track.features)>0)]
+            for track in self.removed_stracks:
+                print("feat_len",len(track.features))
+                # print("active?:",track.is_activated)
+            rm_stracks = [track for track in self.removed_stracks if (track.state==TrackState.Removed and len(track.features)>0)]
+            print("hello")
             rm_stracks_feat = [tr.features for tr in rm_stracks]
-            track_iS, relative_feature_iS, det_iS = find_best_matches(rm_stracks_feat,det_features)
+            print("nice...")
+            track_iS, det_iS, u_detection = find_best_matches(rm_stracks_feat,det_features)
             print("IW...3")
+            print("MATCHING:",len(track_iS),len(det_iS),len(rm_stracks),len(self.removed_stracks),len(cropped_regions))
             rm_activated = []
             for tracki, deti in zip(track_iS,det_iS):
-                det_track= detections[u_detection[deti]] 
+                detection= detections[deti] 
                 rm_track = rm_stracks[tracki]
                 if rm_track.state == TrackState.Tracked:
-                    rm_track.update(det_track,self.frame_id)
+                    rm_track.update(detection,self.frame_id)
                     activated_starcks.append(rm_track)            
                 else:
-                    rm_track.re_activate(det_track, self.frame_id, new_id=False)
+                    rm_track.re_activate(detection, self.frame_id, new_id=False)
                     refind_stracks.append(rm_track)
                 rm_activated.append(rm_track)
             
             self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
-
-            u_detection = list(set(u_detection)-set(det_iS))
 ###############################################################################################
 ################################# OUR EDIT ####################################################
 
@@ -324,7 +329,7 @@ class BYTETracker(object):
         for track in output_stracks:
             cropped_region = crop_roi(frame=frame,strack=track)
             cropped_feature = self.extractor(cropped_region)
-            if (self.frame_id-track.feat_framenum)<50:
+            if (self.frame_id-track.feat_framenum)<50 and self.frame_id>3 and track.feat_framenum>3:
                 continue
             if len(track.features)>=5:
                 track.features.pop(0)
@@ -415,28 +420,26 @@ def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], thresh
     """
     
     track_indices = []
-    feature_indices_l1 = []
-    feature_indices_l2 = []
-
-    for feature_index_l2, feature2 in enumerate(l2):
+    det_i = []
+    u_detection = []
+    for det_index, feature2 in enumerate(l2):
         best_similarity = -1
         best_track_index = None
-        best_feature_index_l1 = None
 
         for track_index, track_features in enumerate(l1):
-            for feature_index_l1, feature1 in enumerate(track_features):
+            for feature1 in track_features:
                 similarity = torch.nn.functional.cosine_similarity(feature1, feature2, dim=0)
+                similarity = torch.mean(similarity).item()
                 if similarity > threshold and similarity > best_similarity:
                     best_similarity = similarity
                     best_track_index = track_index
-                    best_feature_index_l1 = feature_index_l1
 
-        if best_track_index is not None and best_feature_index_l1 is not None:
+        if best_track_index is not None:
             track_indices.append(best_track_index)
-            feature_indices_l1.append(best_feature_index_l1)
-            feature_indices_l2.append(feature_index_l2)
-
-    return track_indices, feature_indices_l1, feature_indices_l2
+            det_i.append(det_index)
+        else:
+            u_detection.append(det_index)
+    return track_indices, det_i, u_detection
 
 # def compare_features(features1, features2):
 #     """Calculates cosine similarities between two lists of features and returns the indices of maximum matches.
