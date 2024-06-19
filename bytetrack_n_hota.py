@@ -169,7 +169,7 @@ annotated_frames = []
 stracks_list = []
 temp_list = []
 
-with open('results\\MOT17-09-DPM-190620241133.txt', 'w') as mot20_file:
+with open('results\\MOT17-09-DPM-190620241627.txt', 'w') as mot20_file:
     temp_tracker = BYTETracker(args,copy.deepcopy(extractor),vid_data.fps)
     frame_count = 0
     # Calculate total frames if possible (improves accuracy)
@@ -207,7 +207,7 @@ with open('results\\MOT17-09-DPM-190620241133.txt', 'w') as mot20_file:
               break
 
           frame_count += 1
-create_video(annotated_frames, vid_data, "results\\output6.mp4")
+create_video(annotated_frames, vid_data, "results\\output7.mp4")
 
 def change_seventh_value(filename):
   """Loads data from a file, changes every 7th value to 1, and saves it back.

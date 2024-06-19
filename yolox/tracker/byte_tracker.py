@@ -295,8 +295,8 @@ class BYTETracker(object):
                 rm_activated.append(rm_track)
             
             self.removed_stracks = sub_stracks(self.removed_stracks,rm_activated)
+######################################## OUR EDIT #############################################
 ###############################################################################################
-################################# OUR EDIT ####################################################
 
         """ Step 4: Init new stracks"""
         for inew in u_detection:
@@ -329,12 +329,13 @@ class BYTETracker(object):
         for track in output_stracks:
             cropped_region = crop_roi(frame=frame,strack=track)
             cropped_feature = self.extractor(cropped_region)
-            if (self.frame_id-track.feat_framenum)<50 and self.frame_id>3 and track.feat_framenum>3:
-                continue
-            if len(track.features)>=5:
-                track.features.pop(0)
-            track.features.append(cropped_feature)
-            track.feat_framenum = self.frame_id
+            if (track.tracklet_len in [0,1,2,5,10,30]) or self.frame_id-track.feat_framenum>50:
+            # if (self.frame_id-track.feat_framenum)<50 and self.frame_id>3 and track.feat_framenum>3:
+            #     continue
+                if len(track.features)>=5:
+                    track.features.pop(0)
+                track.features.append(cropped_feature)
+                track.feat_framenum = self.frame_id
         print("IW...5")
 ######################################### OUR EDIT ################################################
 ###################################################################################################
@@ -405,7 +406,7 @@ def crop_roi(frame, strack):
 
     return roi
 
-def find_best_matches(l1:List[List[torch.Tensor]], l2:List[torch.Tensor], threshold=0.4):
+def find_best_matches(l1:List[List[torch.Tensor]], l2:torch.Tensor, threshold=0.4):
     """Finds the absolute best matches between features in a nested list (l1) and a flat list (l2).
 
     Args:
